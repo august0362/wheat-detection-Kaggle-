@@ -1,50 +1,80 @@
 # ============================================================================
-# Config train THẬT trên Kaggle Notebook (GPU P100 hoặc T4x2).
-# Chạy bằng: python -m src.train --config configs/kaggle_config.yaml
+# Config train THẬT trên Kaggle Notebook (GPU). Toàn bộ pipeline (data prep,
+# train, inference) đọc chung 1 file config duy nhất này.
+#
+#   !git pull
+#   !python -m src.train --config configs/kaggle_config.yaml
+#   !python -m src.infer --config configs/kaggle_config.yaml --output submission.csv
+#
+# (src/data_prep.py cũng có thể chạy riêng để chỉ chuẩn bị dữ liệu, nhưng
+# src/train.py đã tự gọi nó ở đầu mỗi lần train nên thường không cần chạy tay.)
 # ============================================================================
 
-experiment_name: "wheat_kaggle_run"
-
-# ─── Đường dẫn dữ liệu ──────────────────────────────────────────────────────
-# Đường dẫn mount mặc định khi add cuộc thi "Global Wheat Detection" qua tab
-# Competitions trên Kaggle. Nếu bạn add qua Datasets thường (không phải qua
-# Competitions), đường dẫn thường là "/kaggle/input/global-wheat-detection/..."
-# (không có "competitions/") -> chỉnh lại 2 dòng dưới cho khớp.
-data_dir: "/kaggle/input/competitions/global-wheat-detection/train"
-csv_path: "/kaggle/input/competitions/global-wheat-detection/train.csv"
-# /kaggle/working là nơi DUY NHẤT Kaggle cho phép ghi file, và là nơi có thể tải
-# file về sau khi Notebook chạy xong (Output của Notebook).
-output_dir: "/kaggle/working/outputs"
-
-# ─── Reproducibility ────────────────────────────────────────────────────────
+experiment_name: "wheat_yolov8m_kaggle"
 seed: 42
 
-# ─── Chia Train/Validation ──────────────────────────────────────────────────
-# Dùng Stratified K-Fold theo cột "source" (nguồn ảnh), chia theo từng image_id
-# duy nhất (xem src/train.py::create_fold_split). n_splits=5 nghĩa là chia 5 phần
-# bằng nhau, "fold" là phần được chọn làm validation ở lần chạy này.
-n_splits: 5
-fold: 0
+# ─── Dữ liệu ─────────────────────────────────────────────────────────────────
+data:
+  # Đường dẫn mount mặc định khi add cuộc thi "Global Wheat Detection" qua tab
+  # Competitions trên Kaggle. Nếu add qua Datasets thường (không qua Competitions),
+  # bỏ "competitions/" khỏi 4 đường dẫn dưới cho khớp.
+  csv_path: "/kaggle/input/competitions/global-wheat-detection/train.csv"
+  train_image_dir: "/kaggle/input/competitions/global-wheat-detection/train"
+  test_image_dir: "/kaggle/input/competitions/global-wheat-detection/test"
+  sample_submission: "/kaggle/input/competitions/global-wheat-detection/sample_submission.csv"
 
-# ─── Model ───────────────────────────────────────────────────────────────────
-num_classes: 2   # 0: background, 1: wheat_head
-pretrained: true # tải pretrained weights COCO -> cần bật "Internet" trong Notebook Settings
+  # /kaggle/working là nơi DUY NHẤT được ghi trên Kaggle -> nơi tạo cấu trúc
+  # thư mục chuẩn YOLO (images/train, images/val, labels/train, labels/val, data.yaml).
+  yolo_dataset_dir: "/kaggle/working/yolo_dataset"
 
-# ─── Ảnh & Augmentation ──────────────────────────────────────────────────────
-image_size: 1024
+  class_name: "wheat"
+  val_size: 0.2              # Stratified Split 80/20 theo cột 'source'
+  copy_images: true          # true: copy ảnh (bắt buộc vì /kaggle/input chỉ đọc, không symlink được)
+  original_image_size: 1024  # toàn bộ ảnh của cuộc thi này đều có kích thước 1024x1024
 
-# ─── DataLoader ──────────────────────────────────────────────────────────────
-batch_size: 8
-num_workers: 4
-pin_memory: true
+# ─── Augmentation (Albumentations, gắn on-the-fly vào Ultralytics — src/augmentations.py) ──
+augmentation:
+  enabled: true
+  hflip_p: 0.5
+  vflip_p: 0.5
+  brightness_contrast_p: 0.3
+  hue_sat_value_p: 0.3
+  blur_p: 0.2
+  shift_scale_rotate_p: 0.3
+  min_visibility: 0.3
 
-# ─── Optimizer (SGD) ─────────────────────────────────────────────────────────
-learning_rate: 0.005
-momentum: 0.9
-weight_decay: 0.0005
+# ─── Model ────────────────────────────────────────────────────────────────────
+model:
+  variant: "yolov8m.pt"   # đổi thành "yolov8x.pt" để có model lớn/chính xác hơn (train/infer chậm hơn)
+  pretrained: true
 
 # ─── Training ────────────────────────────────────────────────────────────────
-num_epochs: 15
-# Automatic Mixed Precision: train nhanh hơn & tốn ít VRAM hơn trên GPU hỗ trợ
-# Tensor Core (hiệu quả rõ rệt trên T4, hạn chế hơn trên P100 đời cũ).
-use_amp: true
+train:
+  epochs: 60
+  imgsz: 1024
+  batch: 16
+  device: 0                # "0" (1 GPU), "0,1" (2 GPU, vd T4x2), hoặc "cpu"
+  optimizer: "auto"
+  lr0: 0.01
+  patience: 20              # early stopping nếu fitness không cải thiện sau 20 epoch
+  disable_native_augmentation: true  # tắt hsv/degrees/translate/scale/shear/flip mặc định của Ultralytics để không augment trùng với Albumentations ở trên
+  output_dir: "/kaggle/working/runs"
+
+  # Custom competition metric (src/metrics/evaluator.py), tính lại sau mỗi N epoch
+  # bằng cách load lại last.pt + predict toàn bộ tập val -> tốn thời gian, không
+  # nhất thiết phải chạy mỗi epoch trên tập lớn (epoch cuối luôn được tính).
+  metric_eval_interval: 5
+  metric_conf_threshold: 0.1   # ngưỡng conf THẤP khi tính metric (khác ngưỡng lúc submit) để không bỏ sót box đúng nhưng conf thấp
+  metric_nms_iou: 0.6
+
+# ─── Visualize ────────────────────────────────────────────────────────────────
+visualize:
+  n_images: 16
+
+# ─── Inference / Submission ───────────────────────────────────────────────────
+inference:
+  weights_path: "/kaggle/working/runs/wheat_yolov8m_kaggle/weights/best.pt"
+  conf_threshold: 0.3
+  iou_threshold: 0.5
+  imgsz: 1024
+  device: null

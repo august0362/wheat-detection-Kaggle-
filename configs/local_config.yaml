@@ -1,41 +1,68 @@
 # ============================================================================
-# Config chạy THỬ nhanh trên máy local (CPU hoặc GPU yếu) để kiểm tra pipeline
-# không lỗi trước khi đẩy lên Kaggle. Ảnh nhỏ, batch nhỏ, chỉ 1 epoch.
-# Chạy bằng: python -m src.train --config configs/local_config.yaml
+# Config chạy THỬ NHANH ở local (VS Code, CPU) để kiểm tra toàn bộ pipeline
+# (data prep -> augmentation -> train 1 epoch -> metric -> visualize -> infer)
+# không lỗi TRƯỚC KHI đẩy lên Kaggle train thật. Model nhỏ nhất (yolov8n), ảnh
+# nhỏ, batch nhỏ, chỉ 1 epoch — không dùng để train ra model thật.
+#
+#   python -m src.train --config configs/local_config.yaml
+#   python -m src.infer --config configs/local_config.yaml --output submission_test.csv
 # ============================================================================
 
-experiment_name: "wheat_local_test"
-
-# ─── Đường dẫn dữ liệu ──────────────────────────────────────────────────────
-# Giải nén global-wheat-detection.zip vào đây trước khi chạy (data/train/*.jpg, data/train.csv).
-data_dir: "data/train"
-csv_path: "data/train.csv"
-output_dir: "outputs"
-
-# ─── Reproducibility ────────────────────────────────────────────────────────
+experiment_name: "wheat_yolov8n_local_test"
 seed: 42
 
-# ─── Chia Train/Validation ──────────────────────────────────────────────────
-n_splits: 5
-fold: 0
+# ─── Dữ liệu ─────────────────────────────────────────────────────────────────
+data:
+  # Giải nén global-wheat-detection.zip vào data/ trước (data/train/*.jpg, data/train.csv).
+  csv_path: "data/train.csv"
+  train_image_dir: "data/train"
+  test_image_dir: "data/test"
+  sample_submission: "data/sample_submission.csv"
+  yolo_dataset_dir: "data/yolo_dataset"
+  class_name: "wheat"
+  val_size: 0.2
+  copy_images: true
+  original_image_size: 1024
 
-# ─── Model ───────────────────────────────────────────────────────────────────
-num_classes: 2
-pretrained: true  # đặt false nếu chỉ muốn test kiến trúc model mà không cần tải weights
+# ─── Augmentation ─────────────────────────────────────────────────────────────
+augmentation:
+  enabled: true
+  hflip_p: 0.5
+  vflip_p: 0.5
+  brightness_contrast_p: 0.3
+  hue_sat_value_p: 0.3
+  blur_p: 0.2
+  shift_scale_rotate_p: 0.3
+  min_visibility: 0.3
 
-# ─── Ảnh & Augmentation (nhỏ hơn kaggle_config để chạy nhanh trên máy yếu) ───
-image_size: 512
-
-# ─── DataLoader ──────────────────────────────────────────────────────────────
-batch_size: 2
-num_workers: 0    # =0 để tránh lỗi multiprocessing khi debug trên Windows/Jupyter
-pin_memory: false # không có GPU thì pin_memory không có tác dụng, để false cho gọn
-
-# ─── Optimizer (SGD) ─────────────────────────────────────────────────────────
-learning_rate: 0.001
-momentum: 0.9
-weight_decay: 0.0005
+# ─── Model ────────────────────────────────────────────────────────────────────
+model:
+  variant: "yolov8n.pt"   # model nhỏ nhất, chỉ để kiểm tra pipeline chạy được — KHÔNG dùng để train thật
+  pretrained: true
 
 # ─── Training ────────────────────────────────────────────────────────────────
-num_epochs: 1
-use_amp: false    # AMP chỉ có tác dụng trên GPU CUDA, tắt khi chạy local CPU
+train:
+  epochs: 1
+  imgsz: 320
+  batch: 2
+  device: "cpu"
+  optimizer: "auto"
+  lr0: 0.01
+  patience: 20
+  disable_native_augmentation: true
+  output_dir: "outputs/runs"
+  metric_eval_interval: 1
+  metric_conf_threshold: 0.1
+  metric_nms_iou: 0.6
+
+# ─── Visualize ────────────────────────────────────────────────────────────────
+visualize:
+  n_images: 8
+
+# ─── Inference / Submission ───────────────────────────────────────────────────
+inference:
+  weights_path: "outputs/runs/wheat_yolov8n_local_test/weights/best.pt"
+  conf_threshold: 0.3
+  iou_threshold: 0.5
+  imgsz: 320
+  device: null
