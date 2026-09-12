@@ -1,0 +1,15 @@
+# Dùng khi train thật trên Kaggle Notebook (có GPU): ảnh full size 1024, batch/epoch lớn hơn nhiều so với local_config.yaml.
+# Nhớ: model.py tải pretrained weights COCO -> phải bật "Internet" trong Notebook Settings, không thì lỗi khi tạo model.
+experiment_name: "wheat_kaggle_run"
+# Đường dẫn mặc định của Kaggle dataset
+data_dir: "/kaggle/input/global-wheat-detection/train"
+csv_path: "/kaggle/input/global-wheat-detection/train.csv"
+output_dir: "/kaggle/working/outputs"   # /kaggle/working là nơi duy nhất Kaggle cho phép ghi file, và có thể tải về sau khi chạy xong
+
+# Hyperparameters train thật
+image_size: 1024
+batch_size: 8
+num_workers: 4
+num_epochs: 15
+learning_rate: 0.005
+val_split: 0.15

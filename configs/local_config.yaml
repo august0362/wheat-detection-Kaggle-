@@ -1,0 +1,14 @@
+# Dùng để chạy thử nhanh trên máy local (CPU/GPU yếu) trước khi đẩy lên Kaggle:
+# ảnh nhỏ (512), batch nhỏ, chỉ 1 epoch -> chạy vài phút là biết pipeline có lỗi hay không.
+experiment_name: "wheat_local_test"
+data_dir: "data/train"      # nhớ giải nén global-wheat-detection.zip vào đây trước khi chạy
+csv_path: "data/train.csv"
+output_dir: "outputs"
+
+# Hyperparameters test nhẹ
+image_size: 512
+batch_size: 2
+num_workers: 0   # =0 để tránh lỗi multiprocessing khi debug trên Windows/Jupyter
+num_epochs: 1
+learning_rate: 0.001
+val_split: 0.2
