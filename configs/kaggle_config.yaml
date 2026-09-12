@@ -50,7 +50,7 @@ model:
 
 # ─── Training ────────────────────────────────────────────────────────────────
 train:
-  epochs: 60
+  epochs: 1
   imgsz: 1024
   batch: 16
   device: 0                # "0" (1 GPU), "0,1" (2 GPU, vd T4x2), hoặc "cpu"
