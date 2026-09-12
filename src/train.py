@@ -1,3 +1,13 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+# Sau đó mới đến các dòng import của bạn:
+from src.utils import load_config, save_checkpoint, AverageMeter
+from src.dataset import get_train_dataloader, get_val_dataloader
+from src.model import create_model
+
+
 import os
 import argparse
 import pandas as pd
