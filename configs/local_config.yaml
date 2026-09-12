@@ -1,14 +1,41 @@
-# Dùng để chạy thử nhanh trên máy local (CPU/GPU yếu) trước khi đẩy lên Kaggle:
-# ảnh nhỏ (512), batch nhỏ, chỉ 1 epoch -> chạy vài phút là biết pipeline có lỗi hay không.
+# ============================================================================
+# Config chạy THỬ nhanh trên máy local (CPU hoặc GPU yếu) để kiểm tra pipeline
+# không lỗi trước khi đẩy lên Kaggle. Ảnh nhỏ, batch nhỏ, chỉ 1 epoch.
+# Chạy bằng: python -m src.train --config configs/local_config.yaml
+# ============================================================================
+
 experiment_name: "wheat_local_test"
-data_dir: "data/train"      # nhớ giải nén global-wheat-detection.zip vào đây trước khi chạy
+
+# ─── Đường dẫn dữ liệu ──────────────────────────────────────────────────────
+# Giải nén global-wheat-detection.zip vào đây trước khi chạy (data/train/*.jpg, data/train.csv).
+data_dir: "data/train"
 csv_path: "data/train.csv"
 output_dir: "outputs"
 
-# Hyperparameters test nhẹ
+# ─── Reproducibility ────────────────────────────────────────────────────────
+seed: 42
+
+# ─── Chia Train/Validation ──────────────────────────────────────────────────
+n_splits: 5
+fold: 0
+
+# ─── Model ───────────────────────────────────────────────────────────────────
+num_classes: 2
+pretrained: true  # đặt false nếu chỉ muốn test kiến trúc model mà không cần tải weights
+
+# ─── Ảnh & Augmentation (nhỏ hơn kaggle_config để chạy nhanh trên máy yếu) ───
 image_size: 512
+
+# ─── DataLoader ──────────────────────────────────────────────────────────────
 batch_size: 2
-num_workers: 0   # =0 để tránh lỗi multiprocessing khi debug trên Windows/Jupyter
-num_epochs: 1
+num_workers: 0    # =0 để tránh lỗi multiprocessing khi debug trên Windows/Jupyter
+pin_memory: false # không có GPU thì pin_memory không có tác dụng, để false cho gọn
+
+# ─── Optimizer (SGD) ─────────────────────────────────────────────────────────
 learning_rate: 0.001
-val_split: 0.2
+momentum: 0.9
+weight_decay: 0.0005
+
+# ─── Training ────────────────────────────────────────────────────────────────
+num_epochs: 1
+use_amp: false    # AMP chỉ có tác dụng trên GPU CUDA, tắt khi chạy local CPU
