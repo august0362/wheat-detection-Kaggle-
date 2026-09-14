@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List
@@ -152,6 +153,15 @@ def main() -> None:
     print(f"[INFO] Đã load config: {args.config}")
     seed = cfg.get("seed", 42)
     set_seed(seed)
+
+    # 2 GPU T4 trên Kaggle không có NVLink, peer-to-peer qua PCIe thường lỗi/treo
+    # khi NCCL khởi tạo communicator cho DDP (`device: "0,1"`) -> tắt P2P/IB trước
+    # khi Ultralytics spawn subprocess train, chỉ áp dụng khi cấu hình nhiều GPU.
+    device_cfg = str(cfg.get("train", {}).get("device", 0))
+    if "," in device_cfg:
+        os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+        os.environ.setdefault("NCCL_IB_DISABLE", "1")
+        print(f"[INFO] Multi-GPU DDP (device={device_cfg}): đã set NCCL_P2P_DISABLE=1, NCCL_IB_DISABLE=1.")
 
     # ─── Bước 1: Chuẩn bị dữ liệu YOLO ───────────────────────────────────────
     data_yaml_path = build_yolo_dataset(cfg)

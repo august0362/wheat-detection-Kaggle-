@@ -52,8 +52,8 @@ model:
 train:
   epochs: 1
   imgsz: 1024
-  batch: 16
-  device: 0                # "0" (1 GPU), "0,1" (2 GPU, vd T4x2), hoặc "cpu"
+  batch: 32                 # tổng batch, Ultralytics tự chia đều cho các GPU trong `device` (vd 32 -> 16/GPU với "0,1")
+  device: "0"             # "0" (1 GPU), "0,1" (2 GPU, vd T4x2 - DDP đồng bộ gradient qua NCCL), hoặc "cpu"
   optimizer: "auto"
   lr0: 0.01
   patience: 20              # early stopping nếu fitness không cải thiện sau 20 epoch
