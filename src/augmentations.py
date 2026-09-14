@@ -1,31 +1,18 @@
 """
 src/augmentations.py
 ---------------------
-Thành phần 2 của pipeline: augmentation ON-THE-FLY (áp dụng ngay lúc nạp dữ liệu,
-không augment offline ra file mới) bằng Albumentations, gắn thẳng vào vòng lặp
-training của Ultralytics YOLOv8.
+Augmentation ảnh cho YOLOv8, dùng thư viện Albumentations, áp dụng ngay lúc train
+(không lưu ảnh augment ra file riêng).
 
-Vì sao cần "patch" thay vì chỉ truyền tham số cho `model.train()`:
-Ultralytics đã có sẵn 1 bước Albumentations trong pipeline augment nội bộ
-(`ultralytics.data.augment.Albumentations`), nhưng bộ transform MẶC ĐỊNH của nó chỉ
-gồm vài phép biến đổi nhẹ (Blur/MedianBlur/ToGray/CLAHE, p=0.01) và quan trọng nhất:
-KHÔNG cho tuỳ chỉnh `min_visibility` của `BboxParams` (competition yêu cầu 0.3) qua
-bất kỳ tham số công khai nào của `model.train()` — `get_cfg()` của Ultralytics còn
-chặn cứng mọi key lạ trong `train(**kwargs)` (xem `check_dict_alignment`), nên
-không thể "luồn" transform tuỳ biến qua đường train() thông thường.
+Ultralytics có sẵn augmentation Albumentations nhưng rất đơn giản và không cho tuỳ
+chỉnh `min_visibility` (ngưỡng do đề bài yêu cầu) qua tham số của `model.train()`.
+Vì vậy file này "thay thế" (monkey-patch) class augmentation mặc định của Ultralytics
+bằng class tự viết ở dưới, ngay trước khi gọi `model.train()`.
 
-Giải pháp: monkey-patch class `ultralytics.data.augment.Albumentations` bằng một
-class tự viết CÙNG INTERFACE (`__init__(self, p=1.0, *a, **kw)`, `__call__(self,
-labels) -> labels`) TRƯỚC khi gọi `model.train()`. Vì `v8_transforms()` (nơi khởi
-tạo `Albumentations(...)`) tra cứu tên `Albumentations` qua namespace module tại
-THỜI ĐIỂM CHẠY (không cache import), việc gán lại `ultralytics.data.augment.
-Albumentations = <class của mình>` có hiệu lực ngay cả khi việc gán diễn ra sau khi
-`ultralytics.data.augment` đã được import.
-
-Trick này phụ thuộc cấu trúc nội bộ (không phải API công khai chính thức) của
-Ultralytics nên được bọc trong try/except: nếu bản Ultralytics tương lai đổi
-interface, pipeline in cảnh báo và rơi về augmentation mặc định thay vì crash toàn
-bộ quá trình train.
+Đây là cách làm dựa vào cấu trúc nội bộ của Ultralytics (không phải API chính thức),
+nên được bọc trong try/except: nếu phiên bản Ultralytics sau này thay đổi khiến cách
+này không còn dùng được, code sẽ chỉ in cảnh báo và dùng lại augmentation mặc định,
+không làm crash training.
 """
 from __future__ import annotations
 
@@ -46,15 +33,13 @@ def build_bbox_transform(
     min_visibility: float = 0.3,
 ) -> A.Compose:
     """
-    Pipeline augmentation dùng chung cho cả bước patch-vào-Ultralytics lẫn script
-    xem trước augmentation độc lập (`python -m src.augmentations`).
+    Tạo pipeline augmentation: lật ngang/dọc, chỉnh sáng/tương phản, chỉnh màu, làm
+    mờ, xoay/dịch/scale nhẹ. Dùng chung cho cả lúc train và lúc xem trước augmentation
+    (`python -m src.augmentations`).
 
-    `bbox_params.format="yolo"`: tại thời điểm Ultralytics gọi bước Albumentations,
-    box đã ở dạng [x_center, y_center, w, h] normalized [0, 1] — đúng chuẩn YOLO.
-    `min_visibility=0.3`: box còn lại <30% diện tích gốc sau augment (bị crop/xoay
-    mất phần lớn) sẽ bị loại thẳng, tránh model học từ box gần như rỗng.
-    `clip=True`: tự động clip toạ độ box về [0, 1] nếu ShiftScaleRotate làm box
-    vượt nhẹ ra biên do sai số làm tròn, tránh Albumentations báo lỗi box không hợp lệ.
+    min_visibility: box còn lại quá ít diện tích sau augment (bị cắt/xoay mất phần
+    lớn) sẽ bị loại bỏ, tránh model học từ box gần như rỗng.
+    clip=True: tự động kéo box về trong ảnh nếu bị lệch nhẹ ra ngoài do làm tròn số.
     """
     return A.Compose(
         [
@@ -80,7 +65,7 @@ def build_bbox_transform(
 
 
 def build_preview_transform(image_size: int, **transform_kwargs: Any) -> A.Compose:
-    """Bản có thêm `Resize` ở đầu, chỉ dùng để xem trước augmentation trên ảnh gốc (xem `main()` dưới)."""
+    """Giống pipeline augmentation ở trên nhưng thêm bước Resize, chỉ dùng để xem trước ảnh augment (xem `main()` dưới)."""
     base = build_bbox_transform(**transform_kwargs)
     return A.Compose(
         [A.Resize(height=image_size, width=image_size), *base.transforms],
@@ -90,18 +75,17 @@ def build_preview_transform(image_size: int, **transform_kwargs: Any) -> A.Compo
 
 def patch_ultralytics_albumentations(**transform_kwargs: Any) -> bool:
     """
-    Thay thế `ultralytics.data.augment.Albumentations` bằng bản tự viết dùng
-    `build_bbox_transform(**transform_kwargs)`. PHẢI gọi hàm này TRƯỚC
-    `YOLO(...).train(...)`.
+    Gắn pipeline augmentation tự viết vào Ultralytics, thay cho augmentation mặc
+    định. PHẢI gọi hàm này TRƯỚC khi gọi `YOLO(...).train(...)`.
 
     Args:
-        **transform_kwargs: truyền thẳng vào `build_bbox_transform` (hflip_p,
+        **transform_kwargs: các tham số truyền cho `build_bbox_transform` (hflip_p,
             vflip_p, brightness_contrast_p, hue_sat_value_p, blur_p,
             shift_scale_rotate_p, min_visibility).
 
     Returns:
-        True nếu patch thành công. False nếu thất bại (đã in cảnh báo) — training
-        vẫn chạy tiếp được, chỉ là dùng augmentation mặc định của Ultralytics.
+        True nếu gắn thành công. False nếu lỗi (đã in cảnh báo) — training vẫn chạy
+        tiếp được, chỉ là dùng lại augmentation mặc định của Ultralytics.
     """
     try:
         import ultralytics.data.augment as ultra_augment
@@ -110,14 +94,14 @@ def patch_ultralytics_albumentations(**transform_kwargs: Any) -> bool:
 
         class _CustomAlbumentations:
             """
-            Drop-in thay thế cho `ultralytics.data.augment.Albumentations`. Global
-            Wheat Detection là bài toán detection THUẦN BBOX (không segment/keypoint)
-            nên class này chỉ cần xử lý box, đơn giản hơn nhiều so với bản gốc.
+            Class thay thế cho augmentation mặc định của Ultralytics. Bài toán này
+            chỉ có bounding box (không segment/keypoint) nên class này chỉ cần xử lý
+            box, đơn giản hơn bản gốc của Ultralytics.
             """
 
             def __init__(self, p: float = 1.0, *_args: Any, **_kwargs: Any) -> None:
-                # *_args/**_kwargs: nuốt mọi tham số Ultralytics truyền vào (vd `transforms`,
-                # `flip_idx` ở các bản mới) để tương thích ngược/xuôi giữa các phiên bản.
+                # Nhận và bỏ qua các tham số khác mà Ultralytics có thể truyền vào,
+                # để không lỗi khi Ultralytics đổi phiên bản.
                 self.p = p
                 self.transform = transform
 
@@ -133,7 +117,7 @@ def patch_ultralytics_albumentations(**transform_kwargs: Any) -> bool:
 
                 new = self.transform(image=labels["img"], bboxes=bboxes, class_labels=cls.reshape(-1))
                 if len(new["class_labels"]) == 0:
-                    return labels  # augment loại hết box hợp lệ -> giữ nguyên ảnh gốc, không augment lần này
+                    return labels  # augment làm mất hết box -> giữ nguyên ảnh gốc
 
                 labels["img"] = new["image"]
                 labels["cls"] = np.array(new["class_labels"]).reshape(-1, 1)
@@ -146,15 +130,14 @@ def patch_ultralytics_albumentations(**transform_kwargs: Any) -> bool:
             f"(min_visibility={transform_kwargs.get('min_visibility', 0.3)}) vào Ultralytics YOLOv8."
         )
         return True
-    except Exception as e:  # pragma: no cover - phụ thuộc phiên bản Ultralytics đang cài
+    except Exception as e:  # pragma: no cover - tuỳ phiên bản Ultralytics đang cài
         print(f"[WARN] Không patch được Albumentations của Ultralytics ({e}); dùng augmentation mặc định thay thế.")
         return False
 
 
 def main() -> None:
     """`python -m src.augmentations --config configs/local_config.yaml [--n 8]`
-    Xem trước augmentation trên vài ảnh train thật, lưu thành 1 lưới ảnh — kiểm tra
-    độc lập thành phần 2 mà không cần chạy training."""
+    Xem trước augmentation trên vài ảnh train thật, lưu thành 1 lưới ảnh."""
     import argparse
     import glob
     import os

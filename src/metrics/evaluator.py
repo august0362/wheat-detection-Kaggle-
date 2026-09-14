@@ -1,23 +1,23 @@
 """
 src/metrics/evaluator.py
 -------------------------
-Thành phần 3 của pipeline: triển khai ĐỘC LẬP (không phụ thuộc Ultralytics/PyTorch,
-chỉ NumPy) đúng metric chính thức của cuộc thi Global Wheat Detection — trung bình
-"Score" theo Greedy Matching tại 6 ngưỡng IoU [0.50, 0.55, 0.60, 0.65, 0.70, 0.75].
+Cài đặt metric chính thức của cuộc thi Global Wheat Detection (chỉ dùng NumPy,
+không cần Ultralytics/PyTorch).
 
 Tài liệu chính thức:
 https://www.kaggle.com/competitions/global-wheat-detection/overview/evaluation
 
-Thuật toán, cho MỖI ảnh:
-    1. Sắp xếp pred_boxes giảm dần theo confidence.
-    2. Với MỖI ngưỡng t trong {0.50, ..., 0.75}: Greedy Matching giữa pred (theo thứ
-       tự confidence giảm dần) và GT chưa bị nhận:
-         - pred match được 1 GT còn trống có IoU > t (ưu tiên IoU cao nhất) -> TP.
-         - pred không match được GT nào -> FP.
-         - GT nào không được match bởi pred nào -> FN.
-       Score(t) = TP / (TP + FP + FN).
-    3. Image_Score = trung bình cộng Score(t) trên 6 ngưỡng.
-Metric cuối cùng = trung bình cộng Image_Score trên toàn bộ ảnh của tập đánh giá.
+Cách tính, cho MỖI ảnh:
+    1. Sắp xếp box dự đoán giảm dần theo confidence.
+    2. Với mỗi ngưỡng IoU trong [0.50, 0.55, 0.60, 0.65, 0.70, 0.75]: ghép từng box
+       dự đoán với box thật (Ground Truth) chưa bị ghép, theo thứ tự confidence
+       giảm dần:
+         - Ghép được (IoU lớn hơn ngưỡng) -> TP.
+         - Không ghép được -> FP.
+         - Box thật không được box nào ghép -> FN.
+       Score = TP / (TP + FP + FN).
+    3. Điểm của 1 ảnh = trung bình Score trên 6 ngưỡng.
+Điểm cuối cùng = trung bình điểm của tất cả ảnh trong tập đánh giá.
 """
 from __future__ import annotations
 
@@ -30,14 +30,14 @@ IOU_THRESHOLDS: np.ndarray = np.round(np.arange(0.50, 0.76, 0.05), 2)  # [0.50, 
 
 def compute_iou_matrix(pred_boxes: np.ndarray, gt_boxes: np.ndarray) -> np.ndarray:
     """
-    IoU giữa MỌI cặp (pred, gt), vector hoá bằng NumPy broadcasting.
+    Tính IoU giữa mọi cặp (box dự đoán, box thật).
 
     Args:
         pred_boxes: (P, 4) [x_min, y_min, x_max, y_max], đơn vị pixel.
         gt_boxes: (G, 4) [x_min, y_min, x_max, y_max], đơn vị pixel.
 
     Returns:
-        (P, G) ma trận IoU, dtype float32.
+        Ma trận IoU kích thước (P, G).
     """
     pred_boxes = np.asarray(pred_boxes, dtype=np.float32).reshape(-1, 4)
     gt_boxes = np.asarray(gt_boxes, dtype=np.float32).reshape(-1, 4)
@@ -66,15 +66,12 @@ def compute_iou_matrix(pred_boxes: np.ndarray, gt_boxes: np.ndarray) -> np.ndarr
 
 def _greedy_match_at_threshold(iou_matrix: np.ndarray, threshold: float) -> float:
     """
-    Greedy Matching tại MỘT ngưỡng IoU. Giả định các HÀNG của `iou_matrix` (pred)
-    ĐÃ được sắp xếp giảm dần theo confidence — hàm này chỉ duyệt tuần tự theo thứ
-    tự hàng, không tự sắp xếp lại.
+    Ghép box dự đoán với box thật tại 1 ngưỡng IoU. Giả định các hàng của
+    `iou_matrix` (pred) đã được sắp xếp giảm dần theo confidence từ trước.
 
-    Score(t) = TP / (TP + FP + FN), với quy ước 2 trường hợp biên của đề bài:
-        - Không GT, không pred -> 1.0 (ảnh không có wheat head, model cũng không
-          dự đoán gì -> đúng hoàn toàn).
-        - Không GT, có pred -> 0.0 (mọi pred đều là FP, denom = FP > 0 -> 0/FP = 0,
-          công thức tự nhiên cho ra 0, không cần case riêng).
+    Score = TP / (TP + FP + FN). Quy ước 2 trường hợp biên:
+        - Không có box thật, không có box dự đoán -> 1.0 (đúng hoàn toàn).
+        - Không có box thật, có box dự đoán -> 0.0 (mọi box dự đoán đều là FP).
     """
     n_pred, n_gt = iou_matrix.shape
 
@@ -90,7 +87,7 @@ def _greedy_match_at_threshold(iou_matrix: np.ndarray, threshold: float) -> floa
             fp += 1
             continue
         ious = iou_matrix[pred_idx].copy()
-        ious[gt_matched] = -1.0  # loại GT đã bị nhận, không cho match lại (trùng lặp)
+        ious[gt_matched] = -1.0  # box thật đã bị ghép rồi thì không cho ghép lại
         best_gt = int(np.argmax(ious))
         best_iou = ious[best_gt]
 
@@ -112,23 +109,23 @@ def image_score(
     thresholds: Sequence[float] = IOU_THRESHOLDS,
 ) -> float:
     """
-    Image_Score = trung bình cộng Score(t) trên toàn bộ `thresholds` cho MỘT ảnh.
+    Tính điểm của 1 ảnh = trung bình Score trên toàn bộ `thresholds`.
 
     Args:
-        pred_boxes: (P, 4) xyxy pixel, CHƯA CẦN sắp xếp sẵn theo confidence.
-        pred_scores: (P,) confidence tương ứng từng pred_box.
+        pred_boxes: (P, 4) xyxy pixel, không cần sắp xếp sẵn theo confidence.
+        pred_scores: (P,) confidence tương ứng từng box dự đoán.
         gt_boxes: (G, 4) xyxy pixel.
         thresholds: danh sách ngưỡng IoU, mặc định [0.50, 0.55, ..., 0.75].
 
     Returns:
-        Image_Score, float trong [0, 1].
+        Điểm của ảnh, giá trị trong [0, 1].
     """
     pred_boxes = np.asarray(pred_boxes, dtype=np.float32).reshape(-1, 4)
     pred_scores = np.asarray(pred_scores, dtype=np.float32).reshape(-1)
     gt_boxes = np.asarray(gt_boxes, dtype=np.float32).reshape(-1, 4)
 
     if len(pred_boxes) > 0:
-        order = np.argsort(-pred_scores)  # sắp xếp GIẢM DẦN theo confidence
+        order = np.argsort(-pred_scores)  # sắp xếp giảm dần theo confidence
         pred_boxes = pred_boxes[order]
 
     iou_matrix = compute_iou_matrix(pred_boxes, gt_boxes)
@@ -143,8 +140,7 @@ def competition_score(
     thresholds: Sequence[float] = IOU_THRESHOLDS,
 ) -> float:
     """
-    Metric cuối cùng của cuộc thi = trung bình cộng Image_Score trên toàn bộ ảnh
-    của tập đánh giá.
+    Metric cuối cùng của cuộc thi = trung bình điểm các ảnh trong tập đánh giá.
 
     Args:
         all_pred_boxes: list, mỗi phần tử là (P_i, 4) xyxy pixel của 1 ảnh.
@@ -152,7 +148,7 @@ def competition_score(
         all_gt_boxes: list, mỗi phần tử là (G_i, 4) xyxy pixel của 1 ảnh.
 
     Returns:
-        Metric cuộc thi, float trong [0, 1].
+        Điểm cuối cùng, giá trị trong [0, 1].
     """
     n = len(all_gt_boxes)
     assert len(all_pred_boxes) == len(all_pred_scores) == n, (

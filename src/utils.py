@@ -1,16 +1,14 @@
 """
 src/utils.py
 ------------
-Tiện ích dùng chung cho toàn bộ pipeline YOLOv8 (Global Wheat Detection):
+Các hàm dùng chung cho toàn bộ pipeline:
     - Đọc file cấu hình YAML.
-    - Cố định seed (reproducibility).
+    - Cố định seed (để kết quả lặp lại được).
     - Parse chuỗi bbox thô từ train.csv.
-    - Convert bbox qua lại giữa 3 hệ toạ độ dùng trong pipeline:
-        COCO   [x_min, y_min, w, h]            (đơn vị pixel, đúng như train.csv)
-        xyxy   [x_min, y_min, x_max, y_max]    (đơn vị pixel, dùng để tính IoU/metric)
-        YOLO   [x_center, y_center, w, h]      (normalized [0, 1], dùng để ghi label .txt)
-
-Module này KHÔNG phụ thuộc module nào khác trong `src` để tránh import vòng.
+    - Convert bbox qua lại giữa 3 định dạng toạ độ:
+        COCO   [x_min, y_min, w, h]            (pixel, giống train.csv)
+        xyxy   [x_min, y_min, x_max, y_max]    (pixel, dùng để tính IoU/metric)
+        YOLO   [x_center, y_center, w, h]      (normalized [0, 1], dùng để ghi file nhãn)
 """
 from __future__ import annotations
 
@@ -43,9 +41,9 @@ def set_seed(seed: int = 42) -> None:
 
 def parse_bbox_string(bbox_str: str) -> List[float]:
     """
-    Parse 1 chuỗi bbox thô trong cột "bbox" của train.csv, vd "[834.0, 222.0, 56.0, 36.0]"
-    (COCO: x_min, y_min, width, height). Dùng `ast.literal_eval` (chỉ parse literal
-    Python, không thực thi mã tuỳ ý) thay vì `eval()` để an toàn hơn.
+    Parse 1 chuỗi bbox trong cột "bbox" của train.csv, vd "[834.0, 222.0, 56.0, 36.0]"
+    (COCO: x_min, y_min, width, height). Dùng `ast.literal_eval` thay vì `eval()`
+    để an toàn hơn (chỉ đọc dữ liệu, không thực thi mã).
     """
     x, y, w, h = ast.literal_eval(bbox_str)
     return [float(x), float(y), float(w), float(h)]
@@ -55,12 +53,12 @@ def coco_to_xyxy_clipped(
     bbox: Tuple[float, float, float, float], img_w: int, img_h: int
 ) -> Optional[Tuple[float, float, float, float]]:
     """
-    [x_min, y_min, w, h] (COCO, pixel) -> [x_min, y_min, x_max, y_max] (pixel), đã
-    clip cứng về biên ảnh [0, img_w] x [0, img_h] — một số bbox gốc trong train.csv
-    của cuộc thi này vượt nhẹ ra ngoài biên ảnh.
+    Convert box COCO [x_min, y_min, w, h] (pixel) -> xyxy (pixel), đồng thời kéo
+    box về nằm trong biên ảnh [0, img_w] x [0, img_h] — vì một số box gốc trong
+    train.csv bị lệch nhẹ ra ngoài ảnh.
 
-    Trả về None nếu box suy biến (diện tích <= 0) SAU KHI clip — box như vậy phải
-    bị loại bỏ trước khi đưa vào label YOLO hoặc tính metric.
+    Trả về None nếu sau khi kéo về biên, box không còn diện tích (box này phải bị
+    loại bỏ, không đưa vào label YOLO hay tính metric).
     """
     x, y, w, h = bbox
     x1 = float(np.clip(x, 0, img_w))
@@ -99,8 +97,8 @@ def coco_to_yolo(
     bbox: Tuple[float, float, float, float], img_w: int, img_h: int
 ) -> Optional[Tuple[float, float, float, float]]:
     """
-    [x_min, y_min, w, h] (COCO, pixel) -> [x_center, y_center, w, h] (normalized [0, 1],
-    chuẩn YOLO). Trả về None nếu box suy biến/nằm ngoài ảnh (xem `coco_to_xyxy_clipped`).
+    Convert box COCO [x_min, y_min, w, h] (pixel) -> YOLO [x_center, y_center, w, h]
+    (normalized [0, 1]). Trả về None nếu box nằm ngoài ảnh (xem `coco_to_xyxy_clipped`).
     """
     clipped = coco_to_xyxy_clipped(bbox, img_w, img_h)
     if clipped is None:

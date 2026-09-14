@@ -1,20 +1,16 @@
 """
 src/data_prep.py
 ------------------
-Thành phần 1 của pipeline: chuẩn bị dữ liệu chuẩn YOLOv8 từ train.csv gốc của
-cuộc thi Global Wheat Detection.
+Chuẩn bị dữ liệu chuẩn YOLOv8 từ file train.csv gốc của cuộc thi Global Wheat
+Detection.
 
-    train.csv (image_id, width, height, bbox="[x,y,w,h]" COCO, source)
-            │
-            ▼  build_image_metadata()      gộp cả ảnh "nền" (có file ảnh, KHÔNG có
-            │                              dòng nào trong train.csv) vào nhóm riêng
-            │                              để không bị bỏ sót khi chia tập.
-            ▼  stratified_image_split()    train_test_split 80/20, stratify theo
-            │                              cột 'source', chia Ở CẤP ĐỘ ẢNH (tránh
-            │                              1 ảnh có bbox vừa lọt train vừa lọt val).
-            ▼  build_yolo_dataset()        parse+clip+convert bbox (src/utils.py),
-                                            ghi label .txt chuẩn YOLO, copy/symlink
-                                            ảnh, xuất data.yaml.
+Các bước xử lý:
+    1. build_image_metadata()    gom danh sách ảnh, kể cả ảnh "nền" (không có box
+                                  nào trong train.csv), để không bị bỏ sót khi chia tập.
+    2. stratified_image_split()  chia train/val (80/20), mỗi ảnh chỉ thuộc 1 tập
+                                  duy nhất (tránh 1 ảnh vừa ở train vừa ở val).
+    3. build_yolo_dataset()      convert bbox (dùng src/utils.py), ghi file nhãn
+                                  .txt, copy ảnh, xuất file data.yaml.
 
 Chạy độc lập (không cần train.py):
     python -m src.data_prep --config configs/kaggle_config.yaml
@@ -34,16 +30,14 @@ from sklearn.model_selection import train_test_split
 
 from src.utils import coco_to_yolo, load_config, parse_bbox_string, set_seed
 
-# Nhãn stratify riêng cho ảnh có thật trong thư mục ảnh nhưng KHÔNG có bbox nào
-# trong train.csv (ảnh "nền" — background, không có wheat head). Bộ dữ liệu Global
-# Wheat Detection có 49 ảnh như vậy (3422 ảnh trong thư mục, chỉ 3373 ảnh có annotation).
+# Nhãn dùng cho ảnh có trong thư mục nhưng không có box nào trong train.csv (ảnh nền)
 NO_ANNOTATION_LABEL = "__no_annotation__"
 
 _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 
 def _list_image_ids(image_dir: str) -> List[str]:
-    """Toàn bộ image_id (tên file, không đuôi) thực sự tồn tại trên đĩa trong `image_dir`."""
+    """Lấy danh sách image_id (tên file, không đuôi) có thật trong `image_dir`."""
     return sorted(
         p.stem for p in Path(image_dir).iterdir() if p.suffix.lower() in _IMAGE_EXTENSIONS
     )
@@ -51,11 +45,10 @@ def _list_image_ids(image_dir: str) -> List[str]:
 
 def build_image_metadata(df: pd.DataFrame, image_dir: str) -> pd.DataFrame:
     """
-    Bảng metadata 1-dòng-1-ảnh (image_id, source) dùng để chia Stratified Split.
+    Tạo bảng (image_id, source), mỗi ảnh 1 dòng, dùng để chia train/val.
 
-    Gộp cả các ảnh "nền" (tồn tại trong `image_dir` nhưng không có dòng nào trong
-    `df`) vào nhóm `NO_ANNOTATION_LABEL`, để chúng cũng được phân bổ đồng đều giữa
-    train/val thay vì bị bỏ sót hoàn toàn khỏi quá trình huấn luyện.
+    Ảnh nền (có trong `image_dir` nhưng không có dòng nào trong `df`) cũng được
+    thêm vào với nhãn `NO_ANNOTATION_LABEL`, để không bị bỏ sót khi chia tập.
     """
     annotated = df.groupby("image_id")["source"].first().reset_index()
     annotated_ids = set(annotated["image_id"])
@@ -81,9 +74,8 @@ def stratified_image_split(
     image_meta: pd.DataFrame, val_size: float, seed: int
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Stratified Split (mặc định 80/20) theo cột 'source', chia Ở CẤP ĐỘ ẢNH DUY NHẤT
-    (mỗi image_id chỉ rơi vào đúng 1 trong 2 tập) — tránh data leakage khi 1 ảnh có
-    nhiều bbox bị xé lẻ vừa vào train vừa vào val.
+    Chia train/val (mặc định 80/20) theo cột 'source', mỗi image_id chỉ rơi vào
+    đúng 1 tập — tránh rò rỉ dữ liệu khi các box của cùng 1 ảnh bị xé lẻ ra 2 tập.
     """
     train_ids, val_ids = train_test_split(
         image_meta["image_id"].values,
@@ -106,10 +98,9 @@ def _print_source_distribution(image_meta: pd.DataFrame, train_ids: np.ndarray, 
 
 def _write_yolo_label(label_path: str, rows: List[Tuple[int, float, float, float, float]]) -> None:
     """
-    Ghi 1 file .txt nhãn YOLO: mỗi dòng "class_id x_center y_center width height"
-    (normalized [0, 1]). Ảnh không có box hợp lệ nào -> ghi file RỖNG (KHÔNG bỏ qua
-    việc tạo file) — đây là quy ước chuẩn của YOLO cho "ảnh nền" (background image),
-    giúp model học cả trường hợp không có vật thể nào trong ảnh.
+    Ghi 1 file .txt nhãn YOLO: mỗi dòng là "class_id x_center y_center width height"
+    (normalized [0, 1]). Ảnh không có box nào thì vẫn ghi file, chỉ để rỗng — đây là
+    quy ước của YOLO cho ảnh nền, giúp model học cả trường hợp ảnh không có vật thể.
     """
     with open(label_path, "w", encoding="utf-8") as f:
         for cls_id, xc, yc, w, h in rows:
@@ -127,12 +118,11 @@ def _place_image(src_path: str, dst_path: str, copy_images: bool) -> None:
 
 def build_yolo_dataset(cfg: Dict) -> str:
     """
-    Thực thi toàn bộ thành phần 1: parse+convert bbox, stratified split, tạo cấu
-    trúc thư mục chuẩn YOLOv8, xuất `data.yaml`.
+    Chạy toàn bộ bước chuẩn bị dữ liệu: convert bbox, chia train/val, tạo thư mục
+    ảnh/nhãn chuẩn YOLOv8, xuất file `data.yaml`.
 
-    Idempotent: nếu `<yolo_dataset_dir>/data.yaml` đã tồn tại, bỏ qua và tái sử
-    dụng — cho phép `src/train.py` gọi lại hàm này ở đầu mỗi lần train mà không
-    build lại từ đầu mỗi lần.
+    Nếu `<yolo_dataset_dir>/data.yaml` đã tồn tại thì bỏ qua, dùng lại luôn — nhờ
+    vậy `src/train.py` có thể gọi hàm này mỗi lần train mà không build lại từ đầu.
 
     Cấu trúc thư mục được tạo ra:
         <yolo_dataset_dir>/

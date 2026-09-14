@@ -1,9 +1,8 @@
 """
 src/visualize.py
 ------------------
-Phần "Tracking" của thành phần 4: vẽ biểu đồ theo dõi quá trình train (loss +
-custom metric) và vẽ ảnh so sánh bounding box dự đoán vs nhãn thực trên 1 batch
-mẫu của tập validation.
+Vẽ biểu đồ theo dõi quá trình train (loss + custom metric) và vẽ ảnh so sánh
+bounding box dự đoán với nhãn thật trên 1 batch mẫu của tập validation.
 """
 from __future__ import annotations
 
@@ -22,10 +21,10 @@ import pandas as pd
 def plot_training_history(results_csv: str, custom_metric_csv: Optional[str], out_path: str) -> None:
     """
     Vẽ 2 biểu đồ cạnh nhau:
-      (1) Train/Val loss (box, cls, dfl) — đọc từ `results.csv` mà Ultralytics tự
-          sinh trong thư mục run sau mỗi epoch.
+      (1) Train/Val loss (box, cls, dfl) — đọc từ `results.csv` do Ultralytics tự
+          sinh ra sau mỗi epoch.
       (2) Custom Competition Score theo epoch — đọc từ `custom_metric_csv` do
-          callback trong `src/train.py` ghi ra (xem `make_metric_callback`).
+          callback trong `src/train.py` ghi ra.
     """
     if not os.path.isfile(results_csv):
         print(f"[WARN] Không tìm thấy {results_csv}, bỏ qua vẽ biểu đồ loss.")
@@ -100,12 +99,11 @@ def visualize_val_predictions(
     seed: int = 42,
 ) -> None:
     """
-    Chạy `weights_path` trên `n_images` ảnh NGẪU NHIÊN của `images_dir`, vẽ:
-        - Box Ground Truth: màu XANH LÁ (đọc từ file .txt tương ứng trong `labels_dir`).
-        - Box dự đoán: màu ĐỎ, kèm confidence.
-    rồi ghép thành 1 lưới ảnh duy nhất, lưu ra `out_path`.
+    Chạy model trên `n_images` ảnh ngẫu nhiên của `images_dir`, vẽ box Ground Truth
+    (màu xanh lá, đọc từ `labels_dir`) và box dự đoán (màu đỏ, kèm confidence),
+    ghép thành 1 lưới ảnh, lưu ra `out_path`.
     """
-    from ultralytics import YOLO  # import cục bộ: module này import được ngay cả khi chưa cài ultralytics
+    from ultralytics import YOLO  # import ở trong hàm để module này dùng được kể cả khi chưa cài ultralytics
 
     all_images = sorted(glob.glob(os.path.join(images_dir, "*.jpg")))
     if not all_images:

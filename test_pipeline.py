@@ -1,12 +1,12 @@
 """
 test_pipeline.py
 ------------------
-Kiểm tra nhanh, KHÔNG cần internet/tải weight/tải data thật, các phần logic dễ sai
-nhất của pipeline: convert bbox COCO<->YOLO<->xyxy (src/utils.py) và metric cuộc
-thi (src/metrics/evaluator.py). Chạy được ở bất kỳ máy nào có cài requirements.txt.
+Kiểm tra nhanh các phần logic dễ sai nhất của pipeline: convert bbox
+COCO<->YOLO<->xyxy (src/utils.py) và tính metric cuộc thi
+(src/metrics/evaluator.py). Không cần internet, không cần data/weight thật.
 
-Muốn kiểm tra CẢ pipeline thật (data prep + train + infer, cần data/train thật),
-xem configs/local_config.yaml rồi chạy:
+Muốn kiểm tra cả pipeline thật (data prep + train + infer, cần data thật), xem
+configs/local_config.yaml rồi chạy:
     python -m src.train --config configs/local_config.yaml
 
 Chạy file này:
@@ -19,8 +19,7 @@ import numpy as np
 from src.metrics.evaluator import competition_score, image_score
 from src.utils import coco_to_yolo, yolo_to_xyxy
 
-# Console mặc định trên Windows (vd cp1258, cp1252) không encode được tiếng Việt có
-# dấu -> print() sẽ crash với UnicodeEncodeError nếu không ép UTF-8 trước.
+# Ép output ra UTF-8 để không lỗi khi print tiếng Việt có dấu (thường gặp trên Windows).
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")

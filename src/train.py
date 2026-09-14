@@ -1,8 +1,8 @@
 """
 src/train.py
 -------------
-Thành phần 4 của pipeline: huấn luyện YOLOv8 (Ultralytics) cho Global Wheat
-Detection. Thiết kế để chạy trên Kaggle GPU (code chỉ lưu ở VS Code/GitHub):
+Train YOLOv8 (Ultralytics) cho Global Wheat Detection. Thiết kế để chạy trên
+Kaggle GPU (code chỉ lưu ở VS Code/GitHub):
 
     !git pull
     !python -m src.train --config configs/kaggle_config.yaml
@@ -11,14 +11,14 @@ Chạy thử nhanh ở local để kiểm tra pipeline không lỗi trước khi
 
     python -m src.train --config configs/local_config.yaml
 
-Luồng xử lý:
-    1. `src/data_prep.py`      chuẩn bị dữ liệu YOLO (bỏ qua nếu đã có sẵn).
-    2. `src/augmentations.py`  gắn augmentation Albumentations tuỳ biến vào Ultralytics.
-    3. `ultralytics.YOLO.train()` train model thật, có gắn callback `on_model_save`
-       tính custom competition metric (`src/metrics/evaluator.py`) trên tập
-       validation mỗi `metric_eval_interval` epoch.
-    4. `src/visualize.py`      vẽ biểu đồ loss + custom metric, và ảnh so sánh
-       prediction vs Ground Truth trên 1 batch mẫu của tập validation.
+Các bước xử lý:
+    1. src/data_prep.py      chuẩn bị dữ liệu YOLO (bỏ qua nếu đã có sẵn).
+    2. src/augmentations.py  gắn augmentation tuỳ biến vào Ultralytics.
+    3. model.train()         train model thật, có callback tính custom metric của
+                              cuộc thi (src/metrics/evaluator.py) trên tập validation
+                              mỗi vài epoch.
+    4. src/visualize.py      vẽ biểu đồ loss + custom metric, và ảnh so sánh
+                              prediction với Ground Truth trên tập validation.
 """
 from __future__ import annotations
 
@@ -37,8 +37,7 @@ from src.metrics.evaluator import competition_score
 from src.utils import load_config, set_seed, yolo_to_xyxy
 from src.visualize import plot_training_history, visualize_val_predictions
 
-# Console mặc định trên Windows không encode được tiếng Việt có dấu -> ép UTF-8 để
-# log không crash với UnicodeEncodeError (áp dụng cho cả chạy trên Kaggge/Linux).
+# Ép output ra UTF-8 để không lỗi khi print tiếng Việt có dấu (thường gặp trên Windows).
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")
@@ -48,13 +47,11 @@ for _stream in (sys.stdout, sys.stderr):
 
 def _load_val_ground_truth(labels_dir: str, image_size: int) -> Dict[str, np.ndarray]:
     """
-    Đọc TOÀN BỘ label .txt của tập val 1 lần duy nhất, denormalize về pixel xyxy,
-    dùng làm Ground Truth cố định cho callback tính custom metric mỗi epoch (tránh
-    đọc lại + parse lại nhiều lần).
+    Đọc toàn bộ file nhãn của tập val 1 lần, convert về pixel xyxy, dùng làm Ground
+    Truth cố định để tính custom metric mỗi epoch (tránh đọc lại nhiều lần).
 
-    Toàn bộ ảnh gốc của cuộc thi này đều có kích thước `image_size` x `image_size`
-    (mặc định 1024x1024, xem `data.original_image_size` trong config) nên có thể
-    denormalize trực tiếp mà không cần đọc từng file ảnh để lấy shape.
+    Ảnh gốc của cuộc thi này đều có cùng kích thước `image_size` x `image_size`
+    (mặc định 1024x1024), nên convert được luôn mà không cần mở từng file ảnh.
     """
     gt_map: Dict[str, np.ndarray] = {}
     for label_path in sorted(Path(labels_dir).glob("*.txt")):
@@ -82,24 +79,20 @@ def make_metric_callback(
     total_epochs: int,
 ) -> Callable[[Any], None]:
     """
-    Tạo callback gắn vào Ultralytics qua `model.add_callback("on_model_save", ...)`.
+    Tạo callback gắn vào Ultralytics, chạy ngay sau khi weights của epoch hiện tại
+    được lưu xong (`model.add_callback("on_model_save", ...)`).
 
-    `on_model_save` được Ultralytics gọi NGAY SAU KHI `last.pt`/`best.pt` đã ghi
-    xong ra đĩa cho epoch hiện tại (xem `BaseTrainer.save_model`/`_do_train`) —
-    đảm bảo trọng số load lên để predict luôn khớp đúng epoch vừa train xong.
-
-    Cách tính (Custom Validation Loop):
-        1. Load lại `trainer.last` bằng `YOLO(...)` (model độc lập với model đang
-           train, không ảnh hưởng gradient/optimizer state).
-        2. Predict toàn bộ ảnh validation với `conf` THẤP (giữ đủ box để Greedy
-           Matching xét đúng theo thứ tự confidence, không phải ngưỡng dùng lúc submit).
+    Cách tính điểm mỗi epoch:
+        1. Load lại weights vừa lưu bằng `YOLO(...)` (model riêng, không ảnh hưởng
+           model đang train).
+        2. Predict toàn bộ ảnh validation.
         3. So khớp với Ground Truth cố định (`gt_map`) bằng
            `src/metrics/evaluator.py::competition_score`.
-        4. Ghi đè `metric_csv_path` (epoch, custom_score) — ghi lại mỗi lần để
-           không mất tiến độ nếu training bị ngắt giữa chừng.
+        4. Ghi kết quả (epoch, custom_score) ra `metric_csv_path`, ghi lại mỗi lần
+           để không mất dữ liệu nếu training bị ngắt giữa chừng.
 
-    Việc load lại model + predict toàn bộ tập val khá tốn thời gian trên dataset
-    lớn -> điều chỉnh tần suất bằng `eval_interval` (epoch cuối LUÔN được tính).
+    Việc này khá tốn thời gian nên chỉ chạy mỗi `eval_interval` epoch (epoch cuối
+    luôn được tính).
     """
     from ultralytics import YOLO
 
@@ -107,7 +100,7 @@ def make_metric_callback(
 
     def _callback(trainer: Any) -> None:
         try:
-            epoch = int(trainer.epoch) + 1  # trainer.epoch là 0-indexed
+            epoch = int(trainer.epoch) + 1  # trainer.epoch đếm từ 0
             is_final_epoch = epoch >= total_epochs
             if eval_interval > 1 and epoch % eval_interval != 0 and not is_final_epoch:
                 return
@@ -138,7 +131,7 @@ def make_metric_callback(
                 writer.writerows(history)
 
             print(f"[METRIC] Epoch {epoch}: Custom Competition Score (IoU 0.50:0.75:0.05) = {score:.4f}")
-        except Exception as e:  # không để lỗi tính metric phụ làm hỏng cả quá trình train chính
+        except Exception as e:  # lỗi khi tính metric không được làm dừng cả quá trình train
             print(f"[WARN] Lỗi khi tính custom metric ở epoch {getattr(trainer, 'epoch', '?')}: {e}")
 
     return _callback
@@ -154,9 +147,8 @@ def main() -> None:
     seed = cfg.get("seed", 42)
     set_seed(seed)
 
-    # 2 GPU T4 trên Kaggle không có NVLink, peer-to-peer qua PCIe thường lỗi/treo
-    # khi NCCL khởi tạo communicator cho DDP (`device: "0,1"`) -> tắt P2P/IB trước
-    # khi Ultralytics spawn subprocess train, chỉ áp dụng khi cấu hình nhiều GPU.
+    # Kaggle dùng 2 GPU không hỗ trợ tốt kết nối trực tiếp giữa các GPU -> tắt
+    # NCCL P2P/IB để tránh lỗi/treo khi train nhiều GPU cùng lúc (device: "0,1").
     device_cfg = str(cfg.get("train", {}).get("device", 0))
     if "," in device_cfg:
         os.environ.setdefault("NCCL_P2P_DISABLE", "1")
@@ -214,10 +206,9 @@ def main() -> None:
         ),
     )
 
-    # Augmentation gốc của Ultralytics (hsv/degrees/translate/scale/shear/flip) dễ
-    # TRÙNG LẶP với pipeline Albumentations tuỳ biến ở Bước 2 -> tắt (=0) để không
-    # augment 2 lần chồng chéo lên cùng 1 loại biến đổi. Mosaic/Mixup vẫn giữ
-    # nguyên vì không trùng với bất kỳ transform nào trong danh sách yêu cầu.
+    # Augmentation mặc định của Ultralytics (hsv/xoay/dịch/scale/shear/flip) dễ
+    # trùng với augmentation tự viết ở Bước 2 -> tắt bớt để không augment 2 lần.
+    # Mosaic/Mixup vẫn giữ nguyên vì không trùng loại biến đổi nào ở trên.
     native_aug_overrides: Dict[str, float] = (
         dict(hsv_h=0.0, hsv_s=0.0, hsv_v=0.0, degrees=0.0, translate=0.0, scale=0.0,
              shear=0.0, fliplr=0.0, flipud=0.0)

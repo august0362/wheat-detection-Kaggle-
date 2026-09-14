@@ -1,8 +1,8 @@
 """
 src/infer.py
 -------------
-Thành phần 5 của pipeline: script inference ĐỘC LẬP, chạy trên tập test THẬT của
-Kaggle (ẩn lúc submit) để sinh file `submission.csv` đúng định dạng cuộc thi.
+Script inference: chạy model đã train trên tập test của Kaggle, sinh ra file
+`submission.csv` đúng định dạng cuộc thi.
 
     python -m src.infer --config configs/kaggle_config.yaml --output submission.csv
 
@@ -34,10 +34,8 @@ from src.utils import load_config
 
 def _list_test_image_ids(source_dir: str, sample_submission: Optional[str]) -> List[str]:
     """
-    Danh sách image_id CHÍNH THỨC cần dự đoán. Ưu tiên lấy theo `sample_submission.csv`
-    (đúng bộ ảnh + đúng thứ tự Kaggle chấm điểm) nếu có; nếu không, quét trực tiếp
-    thư mục ảnh test. Đảm bảo MỌI ảnh test đều có đúng 1 dòng trong submission.csv —
-    thiếu dòng nào cũng khiến Kaggle từ chối/chấm sai submission.
+    Lấy danh sách image_id cần dự đoán. Ưu tiên đọc từ `sample_submission.csv` (đúng
+    thứ tự Kaggle chấm điểm) nếu có; nếu không thì quét trực tiếp thư mục ảnh test.
     """
     if sample_submission and os.path.isfile(sample_submission):
         return pd.read_csv(sample_submission)["image_id"].tolist()
@@ -48,10 +46,8 @@ def _list_test_image_ids(source_dir: str, sample_submission: Optional[str]) -> L
 
 def format_prediction_string(boxes_xyxy: Sequence[Sequence[float]], scores: Sequence[float]) -> str:
     """
-    "confidence x_min y_min width height" nối nhau bằng dấu cách, mỗi box 1 cụm,
-    SẮP XẾP GIẢM DẦN theo confidence (đúng thứ tự chấm điểm: box confidence cao
-    được xét match trước — xem `src/metrics/evaluator.py`). Toạ độ/kích thước làm
-    tròn về số nguyên gần nhất (pixel), đúng ví dụ định dạng của cuộc thi.
+    Ghép các box thành 1 chuỗi "confidence x_min y_min width height", cách nhau
+    bằng dấu cách, sắp xếp giảm dần theo confidence (đúng định dạng cuộc thi).
     """
     if len(boxes_xyxy) == 0:
         return ""
@@ -77,11 +73,11 @@ def run_inference(
     sample_submission: Optional[str] = None,
 ) -> str:
     """
-    Load `weights_path` (best.pt), predict toàn bộ ảnh trong `source_dir`, và ghi
-    `output_csv` đúng định dạng submission.
+    Load model từ `weights_path`, dự đoán toàn bộ ảnh trong `source_dir`, ghi kết
+    quả ra `output_csv` đúng định dạng submission.
 
-    NMS (loại box trùng lặp) + lọc theo ngưỡng confidence đã được `YOLO.predict()`
-    áp dụng nội bộ thông qua 2 tham số `conf`/`iou` — không cần cài đặt NMS thủ công.
+    Lọc box trùng lặp (NMS) và box confidence thấp đã được `YOLO.predict()` tự làm
+    qua 2 tham số `conf`/`iou`, không cần code thêm.
     """
     from ultralytics import YOLO
 
