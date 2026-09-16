@@ -78,9 +78,9 @@ def stage_source(dest: Path, allow_dirty: bool) -> None:
             "     bỏ qua các thay đổi working-tree chưa commit."
         )
 
+    dest.mkdir(parents=True, exist_ok=True)
     archive_path = dest.parent / "_source.zip"
     run(["git", "archive", "--format=zip", "-o", str(archive_path), "HEAD"], cwd=REPO_ROOT)
-    dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive_path) as zf:
         zf.extractall(dest)
     archive_path.unlink()
