@@ -73,6 +73,32 @@ def run(cmd: list[str], **kwargs) -> None:
     subprocess.run(cmd, check=True, **kwargs)
 
 
+def run_kaggle(cmd: list[str]) -> None:
+    """Chạy lệnh `kaggle` CLI, stream output ra console (giữ progress bar upload).
+
+    `kaggle datasets create/version` có nhiều lỗi "logic" (trùng title/slug,
+    thiếu quyền...) mà CLI chỉ IN RA dòng chữ rồi vẫn thoát mã 0 — nếu chỉ dựa
+    vào exit code như `run()`, script sẽ báo [DONE] dù Kaggle thực ra đã từ
+    chối tạo/cập nhật dataset. Nên phải soi thêm chữ "error" trong output."""
+    print(f"[CMD] {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    assert proc.stdout is not None
+    lines: list[str] = []
+    for line in proc.stdout:
+        print(line, end="")
+        lines.append(line)
+    proc.wait()
+    output = "".join(lines)
+
+    if proc.returncode != 0:
+        raise SystemExit(f"[LỖI] Lệnh kaggle thoát với mã {proc.returncode}.")
+    if "error" in output.lower():
+        raise SystemExit(
+            "\n[LỖI] Kaggle CLI báo lỗi ở output trên (process vẫn thoát mã 0 nên dễ bị tưởng thành công) "
+            "-> dataset CHƯA được tạo/cập nhật đúng. Đọc dòng có chữ 'error' ở trên để biết nguyên nhân."
+        )
+
+
 def stage_source(dest: Path, allow_dirty: bool) -> None:
     """git archive HEAD -> giải nén vào `dest`. Chỉ lấy file đã commit & tracked
     (tự động loại .git/, venv/, __pycache__/, data/, *.pt, *.csv... vì các thư
@@ -165,7 +191,7 @@ def kaggle_push(root: Path, is_new: bool, message: str, public: bool) -> None:
     else:
         cmd = [sys.executable, "-m", "kaggle", "datasets", "version", "-p", str(root), "-r", "zip", "-m", message]
 
-    run(cmd)
+    run_kaggle(cmd)
 
 
 def main() -> None:
