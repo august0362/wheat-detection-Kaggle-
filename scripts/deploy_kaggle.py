@@ -50,12 +50,36 @@ STAGE_DIR = REPO_ROOT / "kaggle_bundle" / "dataset"      # thư mục dàn dựn
 # chạy. KHÔNG liệt kê torch/opencv/numpy/pandas/matplotlib/... ở đây — các gói
 # đó đã có sẵn trên image Kaggle GPU; tải + cài đè lại chỉ tốn dung lượng dataset
 # và có rủi ro ghi đè bản torch có CUDA khớp driver Kaggle bằng bản tải từ PyPI
-# không khớp. Nếu lúc test dry-run (xem README) gặp `ModuleNotFoundError` cho 1
-# gói khác, thêm gói đó vào đây (hoặc truyền qua --extra-packages) rồi deploy lại.
+# không khớp.
+#
+# `ultralytics==8.4.153` (từ bản >=8.3 trở đi) có thêm dependency bắt buộc
+# `ultralytics-platform` (tính năng HUB/telemetry) khi python_version >= 3.11 —
+# kéo theo cả 1 chuỗi HTTP client (httpx/httpcore/h11/anyio) + polars. Phát hiện
+# thực tế lúc `pip install` trên Kaggle báo lỗi thiếu các gói này (không phải
+# đoán trước) — dùng --no-deps từng gói ở đây để KHÔNG kéo theo torch của chúng.
+# Nếu lúc test dry-run vẫn gặp `ModuleNotFoundError` cho 1 gói khác, thêm gói đó
+# vào đây (hoặc truyền qua --extra-packages) rồi deploy lại.
 DEFAULT_PACKAGES = [
     "ultralytics==8.4.153",
     "ultralytics-thop",
     "py-cpuinfo",
+    "ultralytics-platform",
+    "polars",
+    "anyio",
+    "h11",
+    "httpcore",
+    "httpx",
+    "cloudpickle",
+    "nvidia-ml-py",
+    "certifi",
+    "charset_normalizer",
+    "idna",
+    "packaging",
+    "python-dateutil",
+    "requests",
+    "setuptools",
+    "six",
+    "urllib3",
 ]
 
 # Runtime mục tiêu của Kaggle Notebook. Các gói ở trên đều là wheel thuần Python
