@@ -45,12 +45,12 @@ augmentation:
 
 # ─── Model ────────────────────────────────────────────────────────────────────
 model:
-  variant: "yolov8m.pt"   # đổi thành "yolov8x.pt" để có model lớn/chính xác hơn (train/infer chậm hơn)
+  variant: "yolo26n.pt"   # TEST tương thích YOLO26 (nano) — đổi lại "yolov8m.pt" khi train thật
   pretrained: true
 
 # ─── Training ────────────────────────────────────────────────────────────────
 train:
-  epochs: 60
+  epochs: 2   # TEST nhanh — đổi lại 60 khi train thật
   imgsz: 1024
   batch: 32                 # tổng batch, Ultralytics tự chia đều cho các GPU trong `device` (vd 32 -> 16/GPU với "0,1")
   device: "0,1"             # "0" (1 GPU), "0,1" (2 GPU, vd T4x2 - DDP đồng bộ gradient qua NCCL), hoặc "cpu"
