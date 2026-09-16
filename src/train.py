@@ -19,6 +19,14 @@ Các bước xử lý:
                               mỗi vài epoch.
     4. src/visualize.py      vẽ biểu đồ loss + custom metric, và ảnh so sánh
                               prediction với Ground Truth trên tập validation.
+
+Auto-resume: nếu `<output_dir>/<experiment_name>/weights/last.pt` đã tồn tại
+(từ 1 lần chạy trước bị ngắt giữa chừng — mất mạng, OOM, hết giờ session...),
+lần chạy tiếp theo với CÙNG config sẽ tự tiếp tục train từ đó thay vì train lại
+từ đầu bằng pretrained weights. CHỈ có tác dụng nếu `<output_dir>` (mặc định
+`/kaggle/working/runs`) còn nguyên trên đĩa — nếu Kaggle session bị teardown
+hẳn (không chỉ mất mạng tạm thời) thì `/kaggle/working` mất theo, không resume
+được, phải train lại từ đầu như bình thường.
 """
 from __future__ import annotations
 
@@ -93,10 +101,22 @@ def make_metric_callback(
 
     Việc này khá tốn thời gian nên chỉ chạy mỗi `eval_interval` epoch (epoch cuối
     luôn được tính).
+
+    Nếu `metric_csv_path` đã có sẵn dữ liệu từ 1 lần train trước bị ngắt giữa
+    chừng (auto-resume), nạp lại các dòng cũ vào `history` trước để ghi tiếp,
+    tránh bị ghi đè mất khi resume.
     """
     from ultralytics import YOLO
 
     history: List[Dict[str, float]] = []
+    if os.path.isfile(metric_csv_path):
+        with open(metric_csv_path, "r", newline="", encoding="utf-8") as f:
+            history = [
+                {"epoch": int(row["epoch"]), "custom_score": float(row["custom_score"])}
+                for row in csv.DictReader(f)
+            ]
+        if history:
+            print(f"[INFO] Resume: đã nạp lại {len(history)} dòng custom_metric_history.csv cũ.")
 
     def _callback(trainer: Any) -> None:
         try:
@@ -191,7 +211,25 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     metric_csv_path = str(run_dir / "custom_metric_history.csv")
 
-    model = YOLO(model_cfg["variant"])
+    # ─── Auto-resume: nếu có last.pt dở dang từ lần train trước bị ngắt giữa
+    # chừng (mất mạng, OOM, hết giờ session...), tiếp tục từ đó thay vì train
+    # lại từ đầu bằng pretrained weights. Giả định: cùng `experiment_name` nghĩa
+    # là đang tiếp tục CÙNG 1 lần train (không đổi model/data giữa chừng) — nếu
+    # bạn đổi variant/epoch rồi vẫn giữ nguyên experiment_name, hãy đổi tên hoặc
+    # xoá thư mục run cũ để tránh resume nhầm cấu hình khác.
+    last_pt = run_dir / "weights" / "last.pt"
+    resume = False
+    if last_pt.is_file():
+        try:
+            model = YOLO(str(last_pt))
+            resume = True
+            print(f"[INFO] Tìm thấy checkpoint dở dang: {last_pt} -> tiếp tục train (resume), không train lại từ đầu.")
+        except Exception as e:
+            print(f"[WARN] Có last.pt nhưng load lỗi ({e}) -> train lại từ đầu bằng pretrained weights.")
+            model = YOLO(model_cfg["variant"])
+    else:
+        model = YOLO(model_cfg["variant"])
+
     model.add_callback(
         "on_model_save",
         make_metric_callback(
@@ -216,23 +254,29 @@ def main() -> None:
         else {}
     )
 
-    model.train(
-        data=data_yaml_path,
-        epochs=train_cfg["epochs"],
-        imgsz=train_cfg.get("imgsz", 1024),
-        batch=train_cfg.get("batch", 16),
-        device=train_cfg.get("device", 0),
-        optimizer=train_cfg.get("optimizer", "auto"),
-        lr0=train_cfg.get("lr0", 0.01),
-        patience=train_cfg.get("patience", 20),
-        seed=seed,
-        project=output_dir,
-        name=experiment_name,
-        exist_ok=True,
-        pretrained=model_cfg.get("pretrained", True),
-        verbose=True,
-        **native_aug_overrides,
-    )
+    if resume:
+        # resume=True: Ultralytics tự đọc lại toàn bộ tham số (data, epochs, imgsz,
+        # batch, device, augmentation overrides...) từ args.yaml đã lưu cùng
+        # last.pt trong run_dir -> KHÔNG truyền lại các tham số ở nhánh else.
+        model.train(resume=True)
+    else:
+        model.train(
+            data=data_yaml_path,
+            epochs=train_cfg["epochs"],
+            imgsz=train_cfg.get("imgsz", 1024),
+            batch=train_cfg.get("batch", 16),
+            device=train_cfg.get("device", 0),
+            optimizer=train_cfg.get("optimizer", "auto"),
+            lr0=train_cfg.get("lr0", 0.01),
+            patience=train_cfg.get("patience", 20),
+            seed=seed,
+            project=output_dir,
+            name=experiment_name,
+            exist_ok=True,
+            pretrained=model_cfg.get("pretrained", True),
+            verbose=True,
+            **native_aug_overrides,
+        )
 
     actual_run_dir = Path(model.trainer.save_dir)
     best_weights = actual_run_dir / "weights" / "best.pt"

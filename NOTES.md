@@ -59,9 +59,12 @@ trên tập con dữ liệu thật ở local — data prep ra đúng nhãn (đ�
    predict lại TOÀN BỘ tập val → khá tốn thời gian trên dataset lớn. Đang để
    mặc định 5 epoch/lần ở `kaggle_config.yaml` để đỡ tốn, không phải epoch nào
    cũng tính.
-3. **Không có resume tự động**: nếu Kaggle bị ngắt session giữa chừng (hết giờ
-   quota, mất kết nối...), phải chạy lại từ đầu — chưa có logic tự phát hiện
-   `last.pt` cũ để resume.
+3. **Auto-resume (đã làm, `src/train.py::main`)**: nếu `weights/last.pt` đã có
+   sẵn trong `<output_dir>/<experiment_name>/`, lần chạy sau tự `YOLO(last.pt)`
+   + `model.train(resume=True)` thay vì train lại từ đầu. Chỉ có tác dụng nếu
+   `/kaggle/working` (nơi chứa `output_dir`) còn nguyên trên đĩa — nếu Kaggle
+   teardown hẳn session (không chỉ mất mạng tạm thời làm phải Restart Session)
+   thì `/kaggle/working` mất theo, vẫn phải train lại từ đầu như cũ.
 4. **Chỉ chia 1 lần 80/20**, chưa phải K-Fold thật (5 fold) → nếu val set "may
    mắn" dễ/khó bất thường, số liệu custom metric có thể lệch so với thực tế.
 5. **Chưa có test-time augmentation (TTA)** và **chưa ensemble nhiều model**.
@@ -79,8 +82,7 @@ trên tập con dữ liệu thật ở local — data prep ra đúng nhãn (đ�
    lúc infer trung bình cộng (hoặc WBF — Weighted Boxes Fusion) kết quả 5 model.
 3. **Test-Time Augmentation**: `model.predict(..., augment=True)` của
    Ultralytics — dễ bật, thường tăng nhẹ độ chính xác, đổi lại infer chậm hơn.
-4. **Resume training**: kiểm tra `weights/last.pt` đã có sẵn thì tự
-   `model.train(resume=True)` thay vì train lại từ đầu.
+4. ~~Resume training~~ — **đã làm**, xem mục 4.3.
 5. **Pseudo-labeling trên test set** (kỹ thuật phổ biến trong các giải pháp
    thật của cuộc thi này): dùng model đã train dự đoán nhãn cho ảnh test tự
    tin cao, thêm vào tập train, train lại.
