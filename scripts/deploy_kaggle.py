@@ -6,8 +6,12 @@ gói pip mà Kaggle Notebook không có sẵn — thành 1 Kaggle Dataset (priva
 dùng làm input offline cho Notebook chạy ở chế độ "Internet: Off" của Code
 Competition (xem notebooks/kaggle_submission.ipynb).
 
-Chạy từ MÁY LOCAL (không phải trên Kaggle) — cần đã `pip install kaggle` và có
-file `kaggle/kaggle.json` (xem hướng dẫn setup trong README).
+Chạy từ MÁY LOCAL (không phải trên Kaggle) — cần đã `pip install kaggle` và
+đăng nhập Kaggle CLI trước đó (`kaggle config view` để kiểm tra), bằng 1 trong
+2 cách: file `kaggle.json` (username+key) đặt ở vị trí mặc định `~/.kaggle/`,
+hoặc OAuth (`~/.kaggle/credentials.json`, sinh ra khi chạy `kaggle` lần đầu và
+đăng nhập qua trình duyệt). Script này KHÔNG tự set `KAGGLE_CONFIG_DIR` — luôn
+dùng đúng credential mặc định mà `kaggle` CLI của bạn đang xác thực được.
 
 Cách dùng:
     # Lần đầu (tạo dataset mới):
@@ -24,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -41,7 +44,6 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(errors="replace")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-KAGGLE_CREDS_DIR = REPO_ROOT / "kaggle"                 # chứa kaggle.json (đã .gitignore)
 STAGE_DIR = REPO_ROOT / "kaggle_bundle" / "dataset"      # thư mục dàn dựng, build lại mỗi lần chạy
 
 # Các gói pip KHÔNG có sẵn mặc định trên Kaggle Notebook mà src/infer.py cần lúc
@@ -125,6 +127,27 @@ def stage_packages(dest: Path, packages: list[str]) -> None:
     print(f"[OK] Packages ({len(packages)}) -> {dest}")
 
 
+def get_authenticated_username() -> str:
+    """Trả về username Kaggle THẬT SỰ đang được `kaggle` CLI xác thực (qua bất
+    kỳ cơ chế nào: access token / kaggle.json / OAuth) — KHÔNG đọc trực tiếp
+    từ 1 file kaggle.json cụ thể, vì file đó có thể không tồn tại (dùng OAuth)
+    hoặc chứa username sai/cũ trong khi CLI thật ra xác thực bằng cơ chế khác
+    có độ ưu tiên cao hơn. Dùng sai username ở đây sẽ khiến `dataset-metadata.json`
+    ghi owner sai -> Kaggle từ chối tạo dataset (403) dù upload file vẫn chạy được."""
+    from kaggle.api.kaggle_api_extended import KaggleApi
+
+    api = KaggleApi()
+    api.authenticate()
+    username = api.config_values.get(api.CONFIG_NAME_USER)
+    if not username:
+        raise SystemExit(
+            "[LỖI] Không xác định được username Kaggle đã đăng nhập.\n"
+            "  -> Chạy `kaggle config view` để kiểm tra trạng thái đăng nhập,\n"
+            "     hoặc `kaggle datasets list --mine` để test thử xác thực."
+        )
+    return username
+
+
 def write_dataset_metadata(root: Path, username: str, slug: str, title: str) -> None:
     meta = {
         "title": title,
@@ -135,9 +158,6 @@ def write_dataset_metadata(root: Path, username: str, slug: str, title: str) -> 
 
 
 def kaggle_push(root: Path, is_new: bool, message: str, public: bool) -> None:
-    env = os.environ.copy()
-    env["KAGGLE_CONFIG_DIR"] = str(KAGGLE_CREDS_DIR)
-
     if is_new:
         cmd = [sys.executable, "-m", "kaggle", "datasets", "create", "-p", str(root), "-r", "zip"]
         if public:
@@ -145,7 +165,7 @@ def kaggle_push(root: Path, is_new: bool, message: str, public: bool) -> None:
     else:
         cmd = [sys.executable, "-m", "kaggle", "datasets", "version", "-p", str(root), "-r", "zip", "-m", message]
 
-    run(cmd, env=env)
+    run(cmd)
 
 
 def main() -> None:
@@ -165,10 +185,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    creds_file = KAGGLE_CREDS_DIR / "kaggle.json"
-    if not creds_file.is_file():
-        raise SystemExit(f"[LỖI] Không tìm thấy {creds_file}. Xem hướng dẫn setup kaggle.json trong README.")
-    username = json.loads(creds_file.read_text())["username"]
+    username = get_authenticated_username()
     title = args.title or args.slug.replace("-", " ").replace("_", " ").title()
 
     if STAGE_DIR.exists():
