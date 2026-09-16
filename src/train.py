@@ -175,6 +175,13 @@ def main() -> None:
         os.environ.setdefault("NCCL_IB_DISABLE", "1")
         print(f"[INFO] Multi-GPU DDP (device={device_cfg}): đã set NCCL_P2P_DISABLE=1, NCCL_IB_DISABLE=1.")
 
+    # Ảnh wheat có mật độ box rất khác nhau giữa các ảnh (có ảnh tới 70-80+ box) ->
+    # batch "trúng" ảnh nhiều box cần bộ nhớ đỉnh cao hơn hẳn batch thường, dễ
+    # CUDA OOM dù cùng batch size các batch khác vẫn chạy được. Set cả 2 tên biến
+    # môi trường (PyTorch đổi tên qua các bản) để giảm phân mảnh bộ nhớ CUDA.
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+
     # ─── Bước 1: Chuẩn bị dữ liệu YOLO ───────────────────────────────────────
     data_yaml_path = build_yolo_dataset(cfg)
 
