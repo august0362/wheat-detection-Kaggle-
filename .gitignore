@@ -53,3 +53,11 @@ outputs/
 *.engine
 *.tflite
 *.ckpt
+
+# Kaggle API credentials — TUYỆT ĐỐI không đẩy lên GitHub (lộ API key)
+kaggle/kaggle.json
+kaggle.json
+
+# Thư mục dàn dựng (staging) của scripts/deploy_kaggle.py: source zip tạm,
+# wheel packages, weights copy — sinh lại được từ script, không cần versioning.
+kaggle_bundle/

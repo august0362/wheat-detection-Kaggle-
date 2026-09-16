@@ -22,6 +22,10 @@ wheat_detection/
 ├── configs/
 │   ├── local_config.yaml         # chạy thử nhanh ở local (yolov8n, ảnh nhỏ, 1 epoch)
 │   └── kaggle_config.yaml        # cấu hình train thật trên Kaggle GPU (yolov8m/x)
+├── scripts/
+│   └── deploy_kaggle.py          # đóng gói code+weights+wheel offline -> đẩy lên Kaggle Dataset (mục 9)
+├── notebooks/
+│   └── kaggle_submission.ipynb   # notebook nộp bài tối giản, chạy khi Internet: Off (mục 9)
 └── src/
     ├── __init__.py
     ├── utils.py                  # config, seed, parse/convert bbox (COCO <-> xyxy <-> YOLO)
@@ -157,3 +161,25 @@ Trong `<train.output_dir>/<experiment_name>/` (Ultralytics tự tạo):
 2. `git add . && git commit -m "..." && git push`.
 3. Trên Kaggle Notebook: `!git pull && !python -m src.train --config configs/kaggle_config.yaml`.
 4. Sau khi train xong: `!python -m src.infer --config configs/kaggle_config.yaml --output submission.csv`, rồi Submit trực tiếp từ Notebook (Kaggle > Submit to Competition) hoặc tải `submission.csv` về.
+
+## 9. Nộp bài Code Competition khi Internet Off
+
+Global Wheat Detection là **Code Competition**: bài nộp thật phải sinh ra từ 1
+Kaggle Notebook chạy ở chế độ **Internet: Off**, nên không thể `!git pull` hay
+`!pip install` như mục 8. Quy trình:
+
+1. Train trên Kaggle GPU như bình thường (mục 8), tải `best.pt` về máy từ tab
+   **Output** của training notebook.
+2. Đóng gói code (từ Git HEAD) + `best.pt` + các wheel pip còn thiếu thành 1
+   Kaggle Dataset private, bằng `scripts/deploy_kaggle.py` (chạy ở local):
+   ```bash
+   python scripts/deploy_kaggle.py --weights <đường-dẫn-best.pt> --slug wheat-yolov8-offline-bundle --new
+   # Các lần cập nhật sau, bỏ --new:
+   python scripts/deploy_kaggle.py --weights <đường-dẫn-best.pt> --slug wheat-yolov8-offline-bundle -m "..."
+   ```
+3. Mở `notebooks/kaggle_submission.ipynb` trên Kaggle, Add Input dataset vừa
+   tạo + cuộc thi (tab Competitions), bật **Internet: Off**, sửa `BUNDLE_DIR`
+   khớp slug dataset, chạy toàn bộ -> Submit.
+
+Setup `kaggle/kaggle.json` (đã có sẵn, đã gitignore) và các lưu ý về wheel
+đúng nền tảng: xem comment đầu `scripts/deploy_kaggle.py`.
