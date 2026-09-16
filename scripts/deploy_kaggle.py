@@ -31,6 +31,15 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Đường dẫn repo (và nhiều thông báo in ra) chứa ký tự tiếng Việt có dấu. 1 số
+# console Windows (đặc biệt Git Bash / cmd cũ) dùng code page không encode được
+# hết các ký tự này -> print() có thể crash giữa chừng dù script chạy đúng.
+# `errors="replace"` giữ nguyên encoding hiện tại, chỉ thay ký tự không in được
+# bằng "?" thay vì raise UnicodeEncodeError.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KAGGLE_CREDS_DIR = REPO_ROOT / "kaggle"                 # chứa kaggle.json (đã .gitignore)
 STAGE_DIR = REPO_ROOT / "kaggle_bundle" / "dataset"      # thư mục dàn dựng, build lại mỗi lần chạy
