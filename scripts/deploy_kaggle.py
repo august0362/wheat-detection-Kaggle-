@@ -82,13 +82,14 @@ DEFAULT_PACKAGES = [
     "urllib3",
 ]
 
-# Runtime mục tiêu của Kaggle Notebook. Các gói ở trên đều là wheel thuần Python
-# ("py3-none-any") nên 3 giá trị này thực ra không ảnh hưởng nhiều — nhưng vẫn
-# khai báo tường minh để an toàn nếu sau này thêm 1 gói có compiled extension.
-# Kiểm tra lại bằng `!python -V` trong 1 Kaggle Notebook (Internet ON) nếu nghi
-# ngờ lệch — base image Kaggle có thể đổi Python version theo thời gian.
-TARGET_PY_VERSION = "3.11"
-TARGET_ABI = "cp311"
+# Runtime mục tiêu của Kaggle Notebook — xác nhận thực tế qua traceback lúc chạy
+# (path "/usr/local/lib/python3.12/..."), KHÔNG phải đoán. Các gói ở trên hầu hết
+# là wheel thuần Python ("py3-none-any") nên 2 giá trị PY_VERSION/ABI không ảnh
+# hưởng nhiều, nhưng vẫn khai báo đúng để an toàn nếu sau này thêm gói có
+# compiled extension. Nếu Kaggle đổi base image sang Python version khác, sửa lại
+# 2 dòng dưới (kiểm tra bằng `!python -V` trong 1 Kaggle Notebook).
+TARGET_PY_VERSION = "3.12"
+TARGET_ABI = "cp312"
 TARGET_PLATFORM = "manylinux2014_x86_64"
 
 

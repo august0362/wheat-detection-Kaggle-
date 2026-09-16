@@ -171,15 +171,22 @@ Kaggle Notebook chạy ở chế độ **Internet: Off**, nên không thể `!gi
 1. Train trên Kaggle GPU như bình thường (mục 8), tải `best.pt` về máy từ tab
    **Output** của training notebook.
 2. Đóng gói code (từ Git HEAD) + `best.pt` + các wheel pip còn thiếu thành 1
-   Kaggle Dataset private, bằng `scripts/deploy_kaggle.py` (chạy ở local):
+   Kaggle Dataset private, bằng `scripts/deploy_kaggle.py` (chạy ở local) —
+   hoặc double-click `push_to_kaggle.bat` (hỏi đường dẫn weights + xác nhận
+   trước khi chạy, giống `push_to_github.bat`):
    ```bash
+   # Lần đầu tạo dataset (chỉ 1 lần):
    python scripts/deploy_kaggle.py --weights <đường-dẫn-best.pt> --slug wheat-yolov8-offline-bundle --new
    # Các lần cập nhật sau, bỏ --new:
    python scripts/deploy_kaggle.py --weights <đường-dẫn-best.pt> --slug wheat-yolov8-offline-bundle -m "..."
    ```
 3. Mở `notebooks/kaggle_submission.ipynb` trên Kaggle, Add Input dataset vừa
-   tạo + cuộc thi (tab Competitions), bật **Internet: Off**, sửa `BUNDLE_DIR`
-   khớp slug dataset, chạy toàn bộ -> Submit.
+   tạo + cuộc thi (tab Competitions), bật **Internet: Off**, chạy toàn bộ ->
+   Submit (dataset slug đọc từ biến `DATASET_SLUG`, đường dẫn mount thật tự dò
+   bằng `glob`, không cần biết trước `/kaggle/input/...`).
 
-Setup `kaggle/kaggle.json` (đã có sẵn, đã gitignore) và các lưu ý về wheel
-đúng nền tảng: xem comment đầu `scripts/deploy_kaggle.py`.
+Cần đăng nhập Kaggle CLI trước (`kaggle config view` để kiểm tra — `pip install
+kaggle` rồi chạy `kaggle` 1 lần để đăng nhập qua trình duyệt nếu chưa có).
+Danh sách wheel cần bundle + các lưu ý (dependency ẩn của `ultralytics`,
+`is_online()` treo khi Internet Off...): xem comment trong
+`scripts/deploy_kaggle.py` và `notebooks/kaggle_submission.ipynb`.
